@@ -6,16 +6,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type lineNumber() :: integer().
--type cOperator() :: {Tag :: atom(), lineNumber()}.
--type cFloat() :: {float, lineNumber(), Value :: float()}.
--type cInteger() :: {integer, lineNumber(), Value :: integer()}.
--type cCharacter() :: {character, lineNumber(), Value :: integer()}.
--type cString() :: {string, lineNumber(), Value :: string()}.
--type cIdentifier() :: {identifier, lineNumber(), Value :: atom()}.
--type endToken() :: endToken.
+-include("./eScanner.hrl").
 
--type token() :: cOperator() | cFloat() | cInteger() | cCharacter() | cString() | cIdentifier() | endToken().
 -type tokenContext() :: {lineNumber(), [token()]}.
 
 -spec getTokens(binary(), tokenContext()) -> [token()].
@@ -44,6 +36,10 @@ isElementOf(Element, List) ->
     lists:any(fun (E) -> E =:= Element end, List).
 
 -spec getMultiCharacterToken(binary(), tokenContext()) -> [token()].
+getMultiCharacterToken(<<$=, $=, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine, [{'==', CurrentLine} | Tokens]});
+getMultiCharacterToken(<<$=, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine, [{'=', CurrentLine} | Tokens]});
 getMultiCharacterToken(<<$>, $=, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'>=', CurrentLine} | Tokens]});
 getMultiCharacterToken(<<$>, $>, Rest/binary>>, {CurrentLine, Tokens}) ->
@@ -74,8 +70,11 @@ getMultiCharacterToken(<<$|, $|, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'||', CurrentLine} | Tokens]});
 getMultiCharacterToken(<<$|, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'|', CurrentLine} | Tokens]});
-getMultiCharacterToken(_, _) ->
-    toRemove.
+%% for preprocessor
+getMultiCharacterToken(<<$#, $#, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine, [{'##', CurrentLine} | Tokens]});
+getMultiCharacterToken(<<$#, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine, [{'#', CurrentLine} | Tokens]}).
 
 -spec getSingleCharacterToken(binary(), tokenContext()) -> [token()].
 getSingleCharacterToken(<<Character, Rest/binary>>, {CurrentLine, Tokens}) ->
@@ -101,7 +100,7 @@ getMiscellaneousToken(Content, {CurrentLine, Tokens}) ->
 getIdentifier(<<Character, Rest/binary>>, CurrentLine)
         when Character >= $a, Character =< $z; Character >= $A, Character =< $Z; Character =:= $_ ->
     {IdentifierCharacters, RestContent} = getIdentifierCharacters(Rest, []),
-    {{identifier, CurrentLine, [Character | IdentifierCharacters]}, RestContent};
+    {{identifier, CurrentLine, list_to_atom([Character | IdentifierCharacters])}, RestContent};
 getIdentifier(_, CurrentLine) ->
     throw({CurrentLine, "invalid identifier"}).
 
@@ -140,6 +139,8 @@ getCharacterContent(<<Character, $', Rest/binary>>, CurrentLine) ->
     {{character, CurrentLine, Character}, Rest};
 getCharacterContent(<<Character, _/binary>>, CurrentLine) when Character =:= $\n; Character =:= $\t ->
     throw({CurrentLine, "invalid character literal"});
+getCharacterContent(<<$', _/binary>>, CurrentLine) ->
+    throw({CurrentLine, "character is not found between quotation marks"});
 getCharacterContent(_, CurrentLine) ->
     throw({CurrentLine, "missing \"'\" at the end of character"}).
 
@@ -187,9 +188,9 @@ getOctalDigit(C, LineNumber) ->
 spaceCharactersWithoutNewline() ->
     [$\s, $\r, $\t, $\v].
 
-%% ++, --, ==, &&, ||, //, /*..*/, >>, >=, <=, <<
+%% ++, --, ==, &&, ||, //, /*..*/, >>, >=, <=, <<, #, ##
 multiCharacterOperators() ->
-    [$+, $-, $=, $&, $|, $/, $>, $<].
+    [$+, $-, $=, $&, $|, $/, $>, $<, $#].
 
 %% In current stage, newline is considered as token, too. The pre-processor need it.
 singleCharacterOperators() ->
@@ -202,7 +203,7 @@ tokenize(BinaryString) ->
     catch
         throw:{LineNumber, ErrorInfo} ->
             {error, LineNumber, ErrorInfo}
-    end .
+    end.
 
 -ifdef(EUNIT).
 
@@ -211,5 +212,15 @@ operator_test() ->
 
 string_test() ->
     ?assertEqual({ok, [{string, 1, "hello\nworld"}]}, tokenize(<<"\"hello\n\x77orld\"">>)).
+
+character_test() ->
+    ?assertEqual({ok, [{character, 1, 97}]}, tokenize(<<"'a'">>)),
+    ?assertEqual({error, 1, "character is not found between quotation marks"}, tokenize(<<"''">>)).
+
+identifier_test() ->
+    ?assertEqual({ok, [{identifier, 1, hello}, {'=', 1}]}, tokenize(<<"hello =">>)).
+
+preprocessor_test() ->
+    ?assertEqual({ok, [{'##', 1}, {'#', 1}]}, tokenize(<<"###">>)).
 
 -endif.
