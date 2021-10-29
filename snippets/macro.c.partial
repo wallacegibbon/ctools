@@ -1,0 +1,8 @@
+#define MY_ADD(X, Y) (X) > 0 ? (X) : (Y)
+#define MY_IF(COND, THEN, ELSE) if (COND) {\
+THEN; \
+} else {\
+ELSE; \
+}
+
+MY_IF(1, MY_ADD(3, 4), MY_ADD(5, 6));

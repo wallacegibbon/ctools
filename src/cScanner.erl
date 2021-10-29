@@ -77,13 +77,14 @@ getMultiCharacterToken(<<$#, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'#', CurrentLine} | Tokens]}).
 
 -spec getSingleCharacterToken(binary(), tokenContext()) -> [token()].
+getSingleCharacterToken(<<$\n, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine + 1, [{newline, CurrentLine} | Tokens]});
+getSingleCharacterToken(<<$\\, $\n, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine + 1, [{lineContinue, CurrentLine} | Tokens]});
+getSingleCharacterToken(<<$\\, _/binary>>, {CurrentLine, _}) ->
+    throw({CurrentLine, "invalid usage on \"\\\""});
 getSingleCharacterToken(<<Character, Rest/binary>>, {CurrentLine, Tokens}) ->
-    case Character of
-        $\n ->
-            getTokens(Rest, {CurrentLine + 1, [{newline, CurrentLine} | Tokens]});
-        _ ->
-            getTokens(Rest, {CurrentLine, [{list_to_atom([Character]), CurrentLine} | Tokens]})
-    end.
+    getTokens(Rest, {CurrentLine, [{list_to_atom([Character]), CurrentLine} | Tokens]}).
 
 -spec getMiscellaneousToken(binary(), tokenContext()) -> [token()].
 getMiscellaneousToken(<<$', Rest/binary>>, {CurrentLine, Tokens}) ->
@@ -194,7 +195,7 @@ multiCharacterOperators() ->
 
 %% In current stage, newline is considered as token, too. The pre-processor need it.
 singleCharacterOperators() ->
-    [$\n, $^, $!, $*, $&, ${, $}, $[, $], $(, $)].
+    [$\n, $^, $!, $*, $&, ${, $}, $[, $], $(, $), $?, $:, $,, $;, $\\].
 
 -spec tokenize(binary()) -> {ok, [token()]} | {error, lineNumber(), string()}.
 tokenize(BinaryString) ->
@@ -222,5 +223,9 @@ identifier_test() ->
 
 preprocessor_test() ->
     ?assertEqual({ok, [{'##', 1}, {'#', 1}]}, tokenize(<<"###">>)).
+
+lineContinue_test() ->
+    ?assertEqual({ok, [{';', 1}, {lineContinue, 1}, {';', 2}]}, tokenize(<<";\\\n;">>)),
+    ?assertEqual({error, 1, "invalid usage on \"\\\""}, tokenize(<<";\\ \n;">>)).
 
 -endif.
