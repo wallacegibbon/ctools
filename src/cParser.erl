@@ -7,5 +7,5 @@
 -type ast() :: any().
 
 -spec parse([token()]) -> {ok, [ast()]} | {error, lineNumber(), string()}.
-parse(Tokens) ->
+parse(_Tokens) ->
     {ok, []}.

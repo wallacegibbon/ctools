@@ -6,6 +6,5 @@
 -type cCharacter() :: {character, lineNumber(), Value :: integer()}.
 -type cString() :: {string, lineNumber(), Value :: string()}.
 -type cIdentifier() :: {identifier, lineNumber(), Value :: atom()}.
--type endToken() :: endToken.
 
--type token() :: cOperator() | cFloat() | cInteger() | cCharacter() | cString() | cIdentifier() | endToken().
+-type token() :: cOperator() | cFloat() | cInteger() | cCharacter() | cString() | cIdentifier().

@@ -1,6 +1,6 @@
 -module(cPreprocessor).
 
--export([handleNormal/2]).
+-export([process/1]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -33,7 +33,7 @@ handleSpecial([{identifier, _, ifdef}, {identifier, _, Name}, {newline, _} | Res
     end;
 handleSpecial([{identifier, LineNumber, ifdef} | _], _) ->
     throw({LineNumber, "invalid #ifdef command"});
-handleSpecial([{identifier, _, ifndef}, {identifier, _, Name}, {newline, _} | Rest], {MacroMap} = Context) ->
+handleSpecial([{identifier, _, ifndef}, {identifier, _, Name}, {newline, _} | Rest], {MacroMap, _, _} = Context) ->
     case MacroMap of
         #{Name := _} ->
             ignoreTokensAndCollectElse(Rest, Context);
@@ -88,11 +88,6 @@ ignoreTokensAndCollectElse(Tokens, {MacroMap, _, _}) ->
             handleNormal(RestTokens, {MacroMap, [], nothing})
     end.
 
--spec handleNormal([token()]) -> handleReturn().
-handleNormal(Tokens) ->
-    {_, ProcessedTokens, _} = handleNormal(Tokens, {#{}, [], nothing}),
-    lists:reverse(ProcessedTokens).
-
 -spec handleNormal([token()], preprocessContext()) -> handleReturn().
 handleNormal([{'#', _} | Rest], Context) ->
     handleSpecial(Rest, Context);
@@ -102,6 +97,11 @@ handleNormal([Token | Rest], {MacroMap, TokensToReturn, EndFlag}) ->
     handleNormal(Rest, {MacroMap, [Token | TokensToReturn], EndFlag});
 handleNormal([], {MacroMap, TokensToReturn, _}) ->
     {MacroMap, TokensToReturn, []}.
+
+-spec process([token()]) -> [token()].
+process(Tokens) ->
+    {_, ProcessedTokens, _} = handleNormal(Tokens, {#{}, [], nothing}),
+    lists:reverse(ProcessedTokens).
 
 -spec getExpressionTillEOL([token()]) -> {[token()], [token()]}.
 getExpressionTillEOL(Tokens) ->
@@ -133,7 +133,7 @@ forwardUntilElse([_ | Rest]) ->
 forwardUntilElse([]) ->
     throw({0, "missing #endif"}).
 
--spec forwardUntilEndif([token()]) -> token().
+-spec forwardUntilEndif([token()]) -> [token()].
 forwardUntilEndif([{'#', _}, {identifier, _, endif}, {newline, _} | Rest]) ->
     Rest;
 forwardUntilEndif([{'#', _}, {identifier, _, endif}]) ->
@@ -155,14 +155,14 @@ evaluateTokenExpressions([{integer, _, 1}], _MacroMap) ->
 
 handleNormal_noOperator_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"int a = 1;">>),
-    ?assertEqual([{identifier, 1, int}, {identifier, 1, a}, {'=', 1}, {integer, 1, 1}, {';', 1}], handleNormal(Tokens)).
+    ?assertEqual([{identifier, 1, int}, {identifier, 1, a}, {'=', 1}, {integer, 1, 1}, {';', 1}], process(Tokens)).
 
 handleNormal_if_true_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 1\na\n#else\nb\n#endif">>),
-    ?assertEqual([{identifier, 2, a}], handleNormal(Tokens)).
+    ?assertEqual([{identifier, 2, a}], process(Tokens)).
 
 handleNormal_if_false_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 0\na\n#else\nb\n#endif">>),
-    ?assertEqual([{identifier, 4, b}], handleNormal(Tokens)).
+    ?assertEqual([{identifier, 4, b}], process(Tokens)).
 
 -endif.
