@@ -1,6 +1,6 @@
 -module(cParser).
 
--include("./eScanner.hrl").
+-include("./cScanner.hrl").
 
 -export([parse/1]).
 
