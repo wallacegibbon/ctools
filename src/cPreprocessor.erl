@@ -58,7 +58,10 @@ handleSpecial([{identifier, LineNumber, else} | _], _) ->
     throw({LineNumber, "syntax error on \"#else\""});
 handleSpecial([{identifier, _, endif}, {newline, _} | RestContent], {MacroMap, TokensToReturn, collectTokensUntilEndif}) ->
     {MacroMap, TokensToReturn, RestContent};
-handleSpecial([{identifier, LineNumber, else}, {newline, _} | _], {_, _, nothing}) ->
+%% the "#endif" could appear at the end of the file, without following a newline.
+handleSpecial([{identifier, _, endif}], {MacroMap, TokensToReturn, collectTokensUntilEndif}) ->
+    {MacroMap, TokensToReturn, []};
+handleSpecial([{identifier, LineNumber, endif}, {newline, _} | _], {_, _, nothing}) ->
     throw({LineNumber, "\"#endif\" is not expected here"});
 handleSpecial([{identifier, LineNumber, endif} | _], _) ->
     throw({LineNumber, "syntax error on \"#else\""});
@@ -93,10 +96,10 @@ handleNormal(Tokens) ->
 -spec handleNormal([token()], preprocessContext()) -> handleReturn().
 handleNormal([{'#', _} | Rest], Context) ->
     handleSpecial(Rest, Context);
-handleNormal([Token | Rest], {MacroMap, TokensToReturn, EndFlag}) ->
-    handleNormal(Rest, {MacroMap, [Token | TokensToReturn], EndFlag});
 handleNormal([{newline, _} | Rest], Context) ->
     handleNormal(Rest, Context);
+handleNormal([Token | Rest], {MacroMap, TokensToReturn, EndFlag}) ->
+    handleNormal(Rest, {MacroMap, [Token | TokensToReturn], EndFlag});
 handleNormal([], {MacroMap, TokensToReturn, _}) ->
     {MacroMap, TokensToReturn, []}.
 
@@ -114,7 +117,9 @@ getExpressionTillEOL([Token | Rest], CollectedTokens) ->
 -spec forwardUntilElse([token()]) -> {unfinished, [token()]} | {finished, [token()]}.
 forwardUntilElse([{'#', _}, {identifier, _, endif}, {newline, _} | Rest]) ->
     {finished, Rest};
-forwardUntilElse([{'#', _}, {identifier, LineNumber, endif} | _]) ->
+forwardUntilElse([{'#', _}, {identifier, _, endif}]) ->
+    {finished, []};
+forwardUntilElse([{'#', _}, {identifier, LineNumber, endif}, _ | _]) ->
     throw({LineNumber, "there should be a new line after #endif"});
 forwardUntilElse([{'#', _}, {identifier, _, else}, {newline, _} | Rest]) ->
     {unfinished, Rest};
@@ -131,7 +136,9 @@ forwardUntilElse([]) ->
 -spec forwardUntilEndif([token()]) -> token().
 forwardUntilEndif([{'#', _}, {identifier, _, endif}, {newline, _} | Rest]) ->
     Rest;
-forwardUntilEndif([{'#', _}, {identifier, LineNumber, endif} | _]) ->
+forwardUntilEndif([{'#', _}, {identifier, _, endif}]) ->
+    [];
+forwardUntilEndif([{'#', _}, {identifier, LineNumber, endif}, _ | _]) ->
     throw({LineNumber, "there should be a new line after #endif"});
 forwardUntilEndif([_ | Rest]) ->
     forwardUntilEndif(Rest);
@@ -151,7 +158,11 @@ handleNormal_noOperator_test() ->
     ?assertEqual([{identifier, 1, int}, {identifier, 1, a}, {'=', 1}, {integer, 1, 1}, {';', 1}], handleNormal(Tokens)).
 
 handleNormal_if_true_test() ->
-    {ok, Tokens} = cScanner:tokenize(<<"#if 1\na\n#else\nb\n#endif\n">>),
-    ?assertEqual([{identifier, 1, a}], handleNormal(Tokens)).
+    {ok, Tokens} = cScanner:tokenize(<<"#if 1\na\n#else\nb\n#endif">>),
+    ?assertEqual([{identifier, 2, a}], handleNormal(Tokens)).
+
+handleNormal_if_false_test() ->
+    {ok, Tokens} = cScanner:tokenize(<<"#if 0\na\n#else\nb\n#endif">>),
+    ?assertEqual([{identifier, 4, b}], handleNormal(Tokens)).
 
 -endif.

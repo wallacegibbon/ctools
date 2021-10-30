@@ -106,8 +106,8 @@ getNumber(<<$0, $x, C, Rest/binary>>, CurrentLine) when C >= $0, C =< $9; C >= $
     getHexNumber(<<C, Rest/binary>>, [], CurrentLine);
 getNumber(<<$0, C, Rest/binary>>, CurrentLine) when C >= $0, C =< $7 ->
     getOctalNumber(<<C, Rest/binary>>, [], CurrentLine);
-getNumber(<<$0, _/binary>>, CurrentLine) ->
-    {integer, CurrentLine, 0};
+getNumber(<<$0, Rest/binary>>, CurrentLine) ->
+    {{integer, CurrentLine, 0}, Rest};
 getNumber(<<C, _/binary>> = Content, CurrentLine) when C >= $0, C =< $9  ->
     getDecimalNumber(Content, [], CurrentLine, true).
 
