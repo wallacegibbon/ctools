@@ -192,21 +192,21 @@ process_elif_4_test() ->
 
 -spec convertElifToElseAndIf([token()]) -> [token()].
 convertElifToElseAndIf(Tokens) ->
-    lists:reverse(lists:flatten(convertElifToElseAndIf(Tokens, {0, []}))).
+    lists:reverse(lists:flatten(convertElifToElseAndIf(Tokens, [], 0))).
 
 %% after this process, all "#endif" will have a newline after it.
--spec convertElifToElseAndIf([token()], {integer(), [token()]}) -> [token() | any()].
-convertElifToElseAndIf([{'#', _} = PreTag, {identifier, _, 'if'} = Token | Rest], {_, CollectedTokens}) ->
-    [convertElifToElseAndIf(Rest, {0, []}), Token, PreTag, CollectedTokens];
-convertElifToElseAndIf([{'#', _}, {identifier, LineNumber, elif} | Rest], {ElifDepth, CollectedTokens}) ->
-    convertElifToElseAndIf(Rest, {ElifDepth + 1, makeElifReplacement(LineNumber) ++ CollectedTokens});
-convertElifToElseAndIf([{'#', _} = PreTag, {identifier, LineNumber, endif} = Token | Rest], {ElifDepth, CollectedTokens}) ->
-    convertElifToElseAndIf(Rest, {0, lists:duplicate(ElifDepth + 1, [{newline, LineNumber}, Token, PreTag]) ++ CollectedTokens});
-convertElifToElseAndIf([Token | Rest], {ElifDepth, CollectedTokens}) ->
-    convertElifToElseAndIf(Rest, {ElifDepth, [Token | CollectedTokens]});
-convertElifToElseAndIf([], {N, _}) when N =/= 0 ->
+-spec convertElifToElseAndIf([token()], TokenTree, integer()) -> TokenTree when TokenTree :: [token() | TokenTree].
+convertElifToElseAndIf([{'#', _} = PreTag, {identifier, _, 'if'} = Token | Rest], CollectedTokens, _) ->
+    [convertElifToElseAndIf(Rest, [], 0), Token, PreTag, CollectedTokens];
+convertElifToElseAndIf([{'#', _}, {identifier, LineNumber, elif} | Rest], CollectedTokens, ElifDepth) ->
+    convertElifToElseAndIf(Rest, [makeElifReplacement(LineNumber) | CollectedTokens], ElifDepth + 1);
+convertElifToElseAndIf([{'#', _} = PreTag, {identifier, LineNumber, endif} = Token | Rest], CollectedTokens, ElifDepth) ->
+    convertElifToElseAndIf(Rest, [lists:duplicate(ElifDepth + 1, [{newline, LineNumber}, Token, PreTag]) | CollectedTokens], 0);
+convertElifToElseAndIf([Token | Rest], CollectedTokens, ElifDepth) ->
+    convertElifToElseAndIf(Rest, [Token | CollectedTokens], ElifDepth);
+convertElifToElseAndIf([], _, N) when N =/= 0 ->
     throw({0, "preprocessor error, #if and #endif mismatch"});
-convertElifToElseAndIf([], {0, CollectedTokens}) ->
+convertElifToElseAndIf([], CollectedTokens, 0) ->
     CollectedTokens.
 
 -spec makeElifReplacement(integer()) -> [token()].
