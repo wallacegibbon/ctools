@@ -94,7 +94,7 @@ getMiscellaneousToken(<<$', Rest/binary>>, {CurrentLine, Tokens}) ->
 getMiscellaneousToken(<<$", Rest/binary>>, {CurrentLine, Tokens}) ->
     {CString, RestContent, NewLineNumber} = getStringContent(Rest, CurrentLine),
     getTokens(RestContent, {NewLineNumber, [CString | Tokens]});
-getMiscellaneousToken(<<Character, _/binary>> = Content, {CurrentLine, Tokens}) when Character >= $0, Character =< $9 ->
+getMiscellaneousToken(<<C, _/binary>> = Content, {CurrentLine, Tokens}) when C >= $0, C =< $9 ->
     {CNumber, RestContent} = getNumber(Content, CurrentLine),
     getTokens(RestContent, {CurrentLine, [CNumber | Tokens]});
 getMiscellaneousToken(Content, {CurrentLine, Tokens}) ->
@@ -135,17 +135,15 @@ getDecimalNumber(RestContent, Cs, CurrentLine, false) ->
     {{float, CurrentLine, list_to_float(lists:reverse(Cs))}, RestContent}.
 
 -spec getIdentifier(binary(), lineNumber()) -> {cIdentifier(), binary()}.
-getIdentifier(<<Character, Rest/binary>>, CurrentLine)
-        when Character >= $a, Character =< $z; Character >= $A, Character =< $Z; Character =:= $_ ->
+getIdentifier(<<C, Rest/binary>>, CurrentLine)  when C >= $a, C =< $z; C >= $A, C =< $Z; C =:= $_ ->
     {IdentifierCharacters, RestContent} = getIdentifierCharacters(Rest, []),
-    {{identifier, CurrentLine, list_to_atom([Character | IdentifierCharacters])}, RestContent};
+    {{identifier, CurrentLine, list_to_atom([C | IdentifierCharacters])}, RestContent};
 getIdentifier(<<Character, _/binary>>, CurrentLine) ->
     throw({CurrentLine, cToolUtil:flatFmt("invalid identifier character: ~s", [[Character]])}).
 
 -spec getIdentifierCharacters(binary(), [integer()]) -> {string(), binary()}.
-getIdentifierCharacters(<<Character, Rest/binary>>, CharacterCollect)
-        when Character >= $a, Character =< $z; Character >= $A, Character =< $Z; Character =:= $_; Character >= $0, Character =< $9 ->
-    getIdentifierCharacters(Rest, [Character | CharacterCollect]);
+getIdentifierCharacters(<<C, Rest/binary>>, CharacterCollect) when C >= $a, C =< $z; C >= $A, C =< $Z; C =:= $_; C >= $0, C =< $9 ->
+    getIdentifierCharacters(Rest, [C | CharacterCollect]);
 getIdentifierCharacters(RestContent, CharacterCollect) ->
     {lists:reverse(CharacterCollect), RestContent}.
 
@@ -173,9 +171,9 @@ getCharacterContent(<<$\\, Rest/binary>>, CurrentLine) ->
         _ ->
             throw({CurrentLine, "missing \"'\" at the end of character"})
     end;
-getCharacterContent(<<Character, $', Rest/binary>>, CurrentLine) ->
-    {{character, CurrentLine, Character}, Rest};
-getCharacterContent(<<Character, _/binary>>, CurrentLine) when Character =:= $\n; Character =:= $\t ->
+getCharacterContent(<<C, $', Rest/binary>>, CurrentLine) ->
+    {{character, CurrentLine, C}, Rest};
+getCharacterContent(<<C, _/binary>>, CurrentLine) when C =:= $\n; C =:= $\t ->
     throw({CurrentLine, "invalid character literal"});
 getCharacterContent(<<$', _/binary>>, CurrentLine) ->
     throw({CurrentLine, "character is not found between quotation marks"});
