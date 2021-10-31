@@ -271,7 +271,7 @@ lineContinue_test() ->
 
 -endif.
 
--spec tokensToBinaryString([token()]) -> string().
+-spec tokensToBinaryString([token()]) -> binary().
 tokensToBinaryString(Tokens) ->
     list_to_binary(lists:join(" ", lists:map(fun tokenToString/1, Tokens))).
 
