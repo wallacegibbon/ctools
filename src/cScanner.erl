@@ -1,6 +1,6 @@
 -module(cScanner).
 
--export([tokenize/1]).
+-export([tokenize/1, tokensToBinaryString/1]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -268,5 +268,33 @@ preprocessor_test() ->
 lineContinue_test() ->
     ?assertEqual({ok, [{';', 1}, {';', 2}]}, tokenize(<<";\\\n;">>)),
     ?assertEqual({error, 1, "invalid usage on \"\\\""}, tokenize(<<";\\ \n;">>)).
+
+-endif.
+
+-spec tokensToBinaryString([token()]) -> string().
+tokensToBinaryString(Tokens) ->
+    list_to_binary(lists:join(" ", lists:map(fun tokenToString/1, Tokens))).
+
+-spec tokenToString(token()) -> string().
+tokenToString({integer, _, Number}) ->
+    integer_to_list(Number);
+tokenToString({float, _, Number}) ->
+    float_to_list(Number);
+tokenToString({character, _, Number}) ->
+    [$', Number, $'];
+tokenToString({string, _, String}) ->
+    String;
+tokenToString({identifier, _, Name}) ->
+    atom_to_list(Name);
+tokenToString({newline, _}) ->
+    $\n;
+tokenToString({AnyAtom, _}) ->
+    atom_to_list(AnyAtom).
+
+-ifdef(EUNIT).
+
+tokensToBinaryString_test() ->
+    ?assertEqual(<<"* ++ + \n \n >>">>,
+                 tokensToBinaryString([{'*', 1}, {'++', 1}, {'+', 1}, {newline, 1}, {newline,2}, {'>>', 3}])).
 
 -endif.
