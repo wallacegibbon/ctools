@@ -9,8 +9,9 @@
 -include("./cScanner.hrl").
 
 -type tokenContext() :: {lineNumber(), [token()]}.
+-type textToScan() :: binary().
 
--spec getTokens(binary(), tokenContext()) -> [token()].
+-spec getTokens(textToScan(), tokenContext()) -> [token()].
 getTokens(<<Character, Rest/binary>> = InputData, Context) ->
     case isElementOf(Character, spaceCharactersWithoutNewline()) of
         true ->
@@ -35,7 +36,7 @@ getTokens(<<>>, {_, Tokens}) ->
 isElementOf(Element, List) ->
     lists:any(fun (E) -> E =:= Element end, List).
 
--spec getMultiCharacterToken(binary(), tokenContext()) -> [token()].
+-spec getMultiCharacterToken(textToScan(), tokenContext()) -> [token()].
 getMultiCharacterToken(<<$=, $=, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'==', CurrentLine} | Tokens]});
 getMultiCharacterToken(<<$=, Rest/binary>>, {CurrentLine, Tokens}) ->
@@ -70,13 +71,22 @@ getMultiCharacterToken(<<$|, $|, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'||', CurrentLine} | Tokens]});
 getMultiCharacterToken(<<$|, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'|', CurrentLine} | Tokens]});
+%% for comment
+getMultiCharacterToken(<<$/, $/, Rest/binary>>, {CurrentLine, Tokens}) ->
+    {CComment, RestContent} = getLineComment(Rest, CurrentLine),
+    getTokens(RestContent, {CurrentLine, [CComment | Tokens]});
+getMultiCharacterToken(<<$/, $*, Rest/binary>>, {CurrentLine, Tokens}) ->
+    {CComment, RestContent, NewLineNumber} = getBlockComment(Rest, CurrentLine),
+    getTokens(RestContent, {NewLineNumber, [CComment | Tokens]});
+getMultiCharacterToken(<<$/, Rest/binary>>, {CurrentLine, Tokens}) ->
+    getTokens(Rest, {CurrentLine, [{'/', CurrentLine} | Tokens]});
 %% for preprocessor
 getMultiCharacterToken(<<$#, $#, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'##', CurrentLine} | Tokens]});
 getMultiCharacterToken(<<$#, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{'#', CurrentLine} | Tokens]}).
 
--spec getSingleCharacterToken(binary(), tokenContext()) -> [token()].
+-spec getSingleCharacterToken(textToScan(), tokenContext()) -> [token()].
 getSingleCharacterToken(<<$\n, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine + 1, [{newline, CurrentLine} | Tokens]});
 %% escape + newline will ignore the newline
@@ -87,7 +97,7 @@ getSingleCharacterToken(<<$\\, _/binary>>, {CurrentLine, _}) ->
 getSingleCharacterToken(<<Character, Rest/binary>>, {CurrentLine, Tokens}) ->
     getTokens(Rest, {CurrentLine, [{list_to_atom([Character]), CurrentLine} | Tokens]}).
 
--spec getMiscellaneousToken(binary(), tokenContext()) -> [token()].
+-spec getMiscellaneousToken(textToScan(), tokenContext()) -> [token()].
 getMiscellaneousToken(<<$', Rest/binary>>, {CurrentLine, Tokens}) ->
     {CCharacter, RestContent} = getCharacterContent(Rest, CurrentLine),
     getTokens(RestContent, {CurrentLine, [CCharacter | Tokens]});
@@ -101,7 +111,35 @@ getMiscellaneousToken(Content, {CurrentLine, Tokens}) ->
     {CIdentifier, RestContent} = getIdentifier(Content, CurrentLine),
     getTokens(RestContent, {CurrentLine, [CIdentifier | Tokens]}).
 
--spec getNumber(binary(), lineNumber()) -> {cInteger(), binary()} | {cFloat(), binary()}.
+-spec getLineComment(textToScan(), lineNumber()) -> {cLineComment(), textToScan()}.
+getLineComment(Content, CurrentLine) ->
+    {CommentString, RestContent} = getLineComment(Content, CurrentLine, []),
+    {{lineComment, CurrentLine, CommentString}, RestContent}.
+
+-spec getLineComment(textToScan(), lineNumber(), [byte()]) -> {CommentString :: binary(), textToScan()}.
+getLineComment(<<$\n, _/binary>> = Rest, _, CollectedCharacters) ->
+    {list_to_binary(lists:reverse(CollectedCharacters)), Rest};
+getLineComment(<<C, Rest/binary>>, LineNumber, CollectedCharacters) ->
+    getLineComment(Rest, LineNumber, [C | CollectedCharacters]).
+
+-spec getBlockComment(textToScan(), lineNumber()) -> {cBlockComment(), textToScan(), lineNumber()}.
+getBlockComment(Content, CurrentLine) ->
+    {CommentString, RestContent, NewLineNumber} = getBlockComment(Content, CurrentLine, [], 0),
+    {{blockComment, CurrentLine, CommentString}, RestContent, NewLineNumber}.
+
+-spec getBlockComment(textToScan(), lineNumber(), [byte()], non_neg_integer()) -> {CommentString :: binary(), textToScan(), lineNumber()}.
+getBlockComment(<<$*, $/, Rest/binary>>, LineNumber, CollectedCharacters, Depth) when Depth > 0 ->
+    getBlockComment(Rest, LineNumber, [$/, $* | CollectedCharacters], Depth - 1);
+getBlockComment(<<$*, $/, Rest/binary>>, LineNumber, CollectedCharacters, 0) ->
+    {list_to_binary(lists:reverse(CollectedCharacters)), Rest, LineNumber};
+getBlockComment(<<$/, $*, Rest/binary>>, LineNumber, CollectedCharacters, Depth) ->
+    getBlockComment(Rest, LineNumber, [$*, $/ | CollectedCharacters], Depth + 1);
+getBlockComment(<<$\n, Rest/binary>>, LineNumber, CollectedCharacters, Depth) ->
+    getBlockComment(Rest, LineNumber + 1, [$\n | CollectedCharacters], Depth);
+getBlockComment(<<C, Rest/binary>>, LineNumber, CollectedCharacters, Depth) ->
+    getBlockComment(Rest, LineNumber, [C | CollectedCharacters], Depth).
+
+-spec getNumber(textToScan(), lineNumber()) -> {cInteger(), textToScan()} | {cFloat(), textToScan()}.
 getNumber(<<$0, $x, C, Rest/binary>>, CurrentLine) when C >= $0, C =< $9; C >= $a, C =< $f, C >= $A, C =< $F ->
     getHexNumber(<<C, Rest/binary>>, [], CurrentLine);
 getNumber(<<$0, C, Rest/binary>>, CurrentLine) when C >= $0, C =< $7 ->
@@ -121,7 +159,7 @@ getOctalNumber(<<C, Rest/binary>>, Cs, CurrentLine) when C >= $0, C =< $7 ->
 getOctalNumber(RestContent, Cs, CurrentLine) ->
     {{integer, CurrentLine, list_to_integer(lists:reverse(Cs), 8)}, RestContent}.
 
--spec getDecimalNumber(binary(), [char()], lineNumber(), boolean()) -> {cInteger(), binary()} | {cFloat(), binary()}.
+-spec getDecimalNumber(textToScan(), [byte()], lineNumber(), boolean()) -> {cInteger(), textToScan()} | {cFloat(), textToScan()}.
 getDecimalNumber(<<C, Rest/binary>>, Cs, CurrentLine, IsInteger) when C >= $0, C =< $9 ->
     getDecimalNumber(Rest, [C | Cs], CurrentLine, IsInteger);
 getDecimalNumber(<<$., Rest/binary>>, Cs, CurrentLine, _) ->
@@ -134,35 +172,38 @@ getDecimalNumber(RestContent, Cs, CurrentLine, true) ->
 getDecimalNumber(RestContent, Cs, CurrentLine, false) ->
     {{float, CurrentLine, list_to_float(lists:reverse(Cs))}, RestContent}.
 
--spec getIdentifier(binary(), lineNumber()) -> {cIdentifier(), binary()}.
+-spec getIdentifier(textToScan(), lineNumber()) -> {cIdentifier(), textToScan()}.
 getIdentifier(<<C, Rest/binary>>, CurrentLine)  when C >= $a, C =< $z; C >= $A, C =< $Z; C =:= $_ ->
     {IdentifierCharacters, RestContent} = getIdentifierCharacters(Rest, []),
     {{identifier, CurrentLine, list_to_atom([C | IdentifierCharacters])}, RestContent};
 getIdentifier(<<Character, _/binary>>, CurrentLine) ->
     throw({CurrentLine, cToolUtil:flatFmt("invalid identifier character: ~s", [[Character]])}).
 
--spec getIdentifierCharacters(binary(), [integer()]) -> {string(), binary()}.
+-spec getIdentifierCharacters(textToScan(), [integer()]) -> {string(), textToScan()}.
 getIdentifierCharacters(<<C, Rest/binary>>, CharacterCollect) when C >= $a, C =< $z; C >= $A, C =< $Z; C =:= $_; C >= $0, C =< $9 ->
     getIdentifierCharacters(Rest, [C | CharacterCollect]);
 getIdentifierCharacters(RestContent, CharacterCollect) ->
     {lists:reverse(CharacterCollect), RestContent}.
 
--spec getStringContent(binary(), lineNumber()) -> {cString(), binary(), lineNumber()}.
+-spec getStringContent(textToScan(), lineNumber()) -> {cString(), textToScan(), lineNumber()}.
 getStringContent(Content, CurrentLine) ->
-    getStringContent(Content, [], CurrentLine).
+    {String, RestContent, NewLineNumber} = getStringContent(Content, [], CurrentLine),
+    {{string, CurrentLine, String}, RestContent, NewLineNumber}.
 
--spec getStringContent(binary(), [integer()], lineNumber()) -> {cString(), binary(), lineNumber()}.
+-spec getStringContent(textToScan(), [integer()], lineNumber()) -> {binary(), textToScan(), lineNumber()}.
 getStringContent(<<$", Rest/binary>>, CharacterCollect, CurrentLine) ->
-    {{string, CurrentLine, lists:reverse(CharacterCollect)}, Rest, CurrentLine};
+    {list_to_binary(lists:reverse(CharacterCollect)), Rest, CurrentLine};
 getStringContent(<<$\\, $\n, Rest/binary>>, CharacterCollect, CurrentLine) ->
     getStringContent(Rest, CharacterCollect, CurrentLine + 1);
+getStringContent(<<$\n, _/binary>>, _, CurrentLine) ->
+    throw({CurrentLine, "syntax error in string, newline is not allowed here"});
 getStringContent(<<$\\, Rest/binary>>, CharacterCollect, CurrentLine) ->
     {Value, RestContent} = getEscapedCharacter(Rest, CurrentLine),
     getStringContent(RestContent, [Value | CharacterCollect], CurrentLine);
 getStringContent(<<Character, Rest/binary>>, CharacterCollect, CurrentLine) ->
     getStringContent(Rest, [Character | CharacterCollect], CurrentLine).
 
--spec getCharacterContent(binary(), lineNumber()) -> {cCharacter(), binary()}.
+-spec getCharacterContent(textToScan(), lineNumber()) -> {cCharacter(), textToScan()}.
 getCharacterContent(<<$\\, Rest/binary>>, CurrentLine) ->
     {Value, RestContent} = getEscapedCharacter(Rest, CurrentLine),
     case RestContent of
@@ -182,7 +223,7 @@ getCharacterContent(_, CurrentLine) ->
 
 %% For now, hex and octal only support fixed format: \xab\xab, \0abc\0abc. I am not sure whether this follows
 %% the C standard, so this function will be changed in the future when necessary.
--spec getEscapedCharacter(binary(), lineNumber()) -> {integer(), binary()}.
+-spec getEscapedCharacter(textToScan(), lineNumber()) -> {integer(), textToScan()}.
 getEscapedCharacter(<<C, A, B, Rest/binary>>, CurrentLine) when C =:= $x; C =:= $X ->
     FixedA = getHexDigit(A, CurrentLine),
     FixedB = getHexDigit(B, CurrentLine),
@@ -232,7 +273,7 @@ multiCharacterOperators() ->
 singleCharacterOperators() ->
     [$\n, $^, $!, $*, $&, ${, $}, $[, $], $(, $), $?, $:, $,, $;, $\\].
 
--spec tokenize(binary()) -> {ok, [token()]} | {error, lineNumber(), string()}.
+-spec tokenize(textToScan()) -> {ok, [token()]} | {error, lineNumber(), string()}.
 tokenize(BinaryString) ->
     try
         {ok, getTokens(BinaryString, {1, []})}
@@ -244,30 +285,57 @@ tokenize(BinaryString) ->
 -ifdef(EUNIT).
 
 operator_test() ->
-    ?assertEqual({ok, [{'*', 1}, {'++', 1}, {'+', 1}, {newline, 1}, {newline,2}, {'>>', 3}]}, tokenize(<<"*+++\n\n>>">>)).
+    ?assertEqual({ok, [{'*', 1}, {'++', 1}, {'+', 1}, {newline, 1}, {newline,2}, {'>>', 3}]},
+                 tokenize(<<"*+++\n\n>>">>)).
 
 integer_test() ->
-    ?assertEqual({ok, [{integer, 1, 16}, {integer, 1, 8}, {integer, 1, 10}]}, tokenize(<<"0x10 010 10">>)).
+    ?assertEqual({ok, [{integer, 1, 16}, {integer, 1, 8}, {integer, 1, 10}]},
+                 tokenize(<<"0x10 010 10">>)).
 
 float_test() ->
-    ?assertEqual({ok, [{float, 1, 3.14}, {float, 1, 200.0}]}, tokenize(<<"3.14 2.0e2">>)).
+    ?assertEqual({ok, [{float, 1, 3.14}, {float, 1, 200.0}]},
+                 tokenize(<<"3.14 2.0e2">>)).
 
 string_test() ->
-    ?assertEqual({ok, [{string, 1, "hello\nworld"}]}, tokenize(<<"\"hello\n\x77orld\"">>)).
+    ?assertEqual({ok, [{string, 1, <<"helloworld">>}]},
+                 tokenize(<<"\"hello\\\n\x77orld\"">>)).
+
+string_error_test() ->
+    ?assertEqual({error, 1, "syntax error in string, newline is not allowed here"},
+                 tokenize(<<"\"hello\n\x77orld\"">>)).
 
 character_test() ->
-    ?assertEqual({ok, [{character, 1, 97}]}, tokenize(<<"'a'">>)),
-    ?assertEqual({error, 1, "character is not found between quotation marks"}, tokenize(<<"''">>)).
+    ?assertEqual({ok, [{character, 1, 97}]},
+                 tokenize(<<"'a'">>)),
+    ?assertEqual({error, 1, "character is not found between quotation marks"},
+                 tokenize(<<"''">>)).
 
 identifier_test() ->
-    ?assertEqual({ok, [{identifier, 1, hello}, {'=', 1}]}, tokenize(<<"hello =">>)).
+    ?assertEqual({ok, [{identifier, 1, hello}, {'=', 1}]},
+                 tokenize(<<"hello =">>)).
 
 preprocessor_test() ->
-    ?assertEqual({ok, [{'##', 1}, {'#', 1}]}, tokenize(<<"###">>)).
+    ?assertEqual({ok, [{'##', 1}, {'#', 1}]},
+                 tokenize(<<"###">>)).
 
 lineContinue_test() ->
-    ?assertEqual({ok, [{';', 1}, {';', 2}]}, tokenize(<<";\\\n;">>)),
-    ?assertEqual({error, 1, "invalid usage on \"\\\""}, tokenize(<<";\\ \n;">>)).
+    ?assertEqual({ok, [{';', 1}, {';', 2}]},
+                 tokenize(<<";\\\n;">>)),
+    ?assertEqual({error, 1, "invalid usage on \"\\\""},
+                 tokenize(<<";\\ \n;">>)).
+
+lineComment_test() ->
+    ?assertEqual({ok, [{lineComment, 1, <<"hello">>}, {newline, 1}]},
+                 tokenize(<<"//hello\n">>)).
+
+blockComment_test() ->
+    ?assertEqual({ok, [{blockComment, 1, <<"hello\nworld\n">>}, {newline, 3}]},
+                 tokenize(<<"/*hello\nworld\n*/\n">>)).
+
+%% nested block comment is not supported by Standard C, but supported by this compiler.
+blockComment_nested_test() ->
+    ?assertEqual({ok, [{blockComment, 1, <<"/*hello*/">>}, {newline, 1}]},
+        tokenize(<<"/*/*hello*/*/\n">>)).
 
 -endif.
 
