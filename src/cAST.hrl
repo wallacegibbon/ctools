@@ -1,15 +1,16 @@
--type commonExpression2Type() :: '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '&&' | '||' | '==' | '!=' | '=' | '->' | '.' | '[]'.
--type commonExpression1Type() :: '+' | '-' | '++' | '--' | '!' | '*' | '&' | sizeof.
+-type commonExpression2Type() :: 'a+b' | 'a-b' | 'a*b' | 'a/b' | 'a%b' | 'a&b' | 'a|b' | 'a^b' | 'a&&b' | 'a||b' |
+                                 'a==b' | 'a!=b' | 'a=b' | 'a->b' | 'a.b' | 'a[b]' | 'a(b)'.
+-type commonExpression1Type() :: '+a' | '-a' | '~a' | '++a' | '--a' | '!a' | '*a' | '&a' | sizeof.
 -type lineNumber() :: pos_integer().
 
 -record(commonExpression2,
-        {operator = '+' :: commonExpression2Type(),
+        {operator = 'a+b' :: commonExpression2Type(),
          operand1 = [] :: cAST(),
          operand2 = [] :: cAST(),
          line = 0:: lineNumber()}).
 
 -record(commonExpression1,
-        {operator = '+' :: commonExpression1Type(),
+        {operator = '+a' :: commonExpression1Type(),
          operand = [] :: cAST(),
          line = 0:: lineNumber()}).
 
