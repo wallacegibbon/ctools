@@ -108,13 +108,13 @@ getMiscellaneousToken(<<C, _/binary>> = Content, {CurrentLine, Tokens}) when C >
     {CNumber, RestContent} = getNumber(Content, CurrentLine),
     getTokens(RestContent, {CurrentLine, [CNumber | Tokens]});
 getMiscellaneousToken(Content, {CurrentLine, Tokens}) ->
-    {CIdentifier, RestContent} = getIdentifier(Content, CurrentLine),
+    {CIdentifier, RestContent} = getIdentifierOrKeyword(Content, CurrentLine),
     getTokens(RestContent, {CurrentLine, [CIdentifier | Tokens]}).
 
 -spec getLineComment(textToScan(), lineNumber()) -> {cLineComment(), textToScan()}.
 getLineComment(Content, CurrentLine) ->
     {CommentString, RestContent} = getLineComment(Content, CurrentLine, []),
-    {{lineComment, CurrentLine, CommentString}, RestContent}.
+    {{cLineComment, CurrentLine, CommentString}, RestContent}.
 
 -spec getLineComment(textToScan(), lineNumber(), [byte()]) -> {CommentString :: binary(), textToScan()}.
 getLineComment(<<$\n, _/binary>> = Rest, _, CollectedCharacters) ->
@@ -125,7 +125,7 @@ getLineComment(<<C, Rest/binary>>, LineNumber, CollectedCharacters) ->
 -spec getBlockComment(textToScan(), lineNumber()) -> {cBlockComment(), textToScan(), lineNumber()}.
 getBlockComment(Content, CurrentLine) ->
     {CommentString, RestContent, NewLineNumber} = getBlockComment(Content, CurrentLine, [], 0),
-    {{blockComment, CurrentLine, CommentString}, RestContent, NewLineNumber}.
+    {{cBlockComment, CurrentLine, CommentString}, RestContent, NewLineNumber}.
 
 -spec getBlockComment(textToScan(), lineNumber(), [byte()], non_neg_integer()) -> {CommentString :: binary(), textToScan(), lineNumber()}.
 getBlockComment(<<$*, $/, Rest/binary>>, LineNumber, CollectedCharacters, Depth) when Depth > 0 ->
@@ -145,19 +145,19 @@ getNumber(<<$0, $x, C, Rest/binary>>, CurrentLine) when C >= $0, C =< $9; C >= $
 getNumber(<<$0, C, Rest/binary>>, CurrentLine) when C >= $0, C =< $7 ->
     getOctalNumber(<<C, Rest/binary>>, [], CurrentLine);
 getNumber(<<$0, Rest/binary>>, CurrentLine) ->
-    {{integer, CurrentLine, 0}, Rest};
+    {{cInteger, CurrentLine, 0}, Rest};
 getNumber(<<C, _/binary>> = Content, CurrentLine) when C >= $0, C =< $9  ->
     getDecimalNumber(Content, [], CurrentLine, true).
 
 getHexNumber(<<C, Rest/binary>>, Cs, CurrentLine) when C >= $0, C =< $9; C >= $a, C =< $f, C >= $A, C =< $F ->
     getHexNumber(Rest, [C | Cs], CurrentLine);
 getHexNumber(RestContent, Cs, CurrentLine) ->
-    {{integer, CurrentLine, list_to_integer(lists:reverse(Cs), 16)}, RestContent}.
+    {{cInteger, CurrentLine, list_to_integer(lists:reverse(Cs), 16)}, RestContent}.
 
 getOctalNumber(<<C, Rest/binary>>, Cs, CurrentLine) when C >= $0, C =< $7 ->
     getOctalNumber(Rest, [C | Cs], CurrentLine);
 getOctalNumber(RestContent, Cs, CurrentLine) ->
-    {{integer, CurrentLine, list_to_integer(lists:reverse(Cs), 8)}, RestContent}.
+    {{cInteger, CurrentLine, list_to_integer(lists:reverse(Cs), 8)}, RestContent}.
 
 -spec getDecimalNumber(textToScan(), [byte()], lineNumber(), boolean()) -> {cInteger(), textToScan()} | {cFloat(), textToScan()}.
 getDecimalNumber(<<C, Rest/binary>>, Cs, CurrentLine, IsInteger) when C >= $0, C =< $9 ->
@@ -168,15 +168,21 @@ getDecimalNumber(<<$., Rest/binary>>, Cs, CurrentLine, _) ->
 getDecimalNumber(<<C, Rest/binary>>, Cs, CurrentLine, _) when C =:= $E; C =:= $e ->
     getDecimalNumber(Rest, [C | Cs], CurrentLine, false);
 getDecimalNumber(RestContent, Cs, CurrentLine, true) ->
-    {{integer, CurrentLine, list_to_integer(lists:reverse(Cs))}, RestContent};
+    {{cInteger, CurrentLine, list_to_integer(lists:reverse(Cs))}, RestContent};
 getDecimalNumber(RestContent, Cs, CurrentLine, false) ->
-    {{float, CurrentLine, list_to_float(lists:reverse(Cs))}, RestContent}.
+    {{cFloat, CurrentLine, list_to_float(lists:reverse(Cs))}, RestContent}.
 
--spec getIdentifier(textToScan(), lineNumber()) -> {cIdentifier(), textToScan()}.
-getIdentifier(<<C, Rest/binary>>, CurrentLine)  when C >= $a, C =< $z; C >= $A, C =< $Z; C =:= $_ ->
+-spec getIdentifierOrKeyword(textToScan(), lineNumber()) -> {cIdentifier(), textToScan()}.
+getIdentifierOrKeyword(<<C, Rest/binary>>, CurrentLine)  when C >= $a, C =< $z; C >= $A, C =< $Z; C =:= $_ ->
     {IdentifierCharacters, RestContent} = getIdentifierCharacters(Rest, []),
-    {{identifier, CurrentLine, list_to_atom([C | IdentifierCharacters])}, RestContent};
-getIdentifier(<<Character, _/binary>>, CurrentLine) ->
+    IdentifierOrKeyword = list_to_atom([C | IdentifierCharacters]),
+    case isElementOf(IdentifierOrKeyword, cKeywords()) of
+        true ->
+            {{IdentifierOrKeyword, CurrentLine}, RestContent};
+        false ->
+            {{cIdentifier, CurrentLine, IdentifierOrKeyword}, RestContent}
+    end;
+getIdentifierOrKeyword(<<Character, _/binary>>, CurrentLine) ->
     throw({CurrentLine, cToolUtil:flatFmt("invalid identifier character: ~s", [[Character]])}).
 
 -spec getIdentifierCharacters(textToScan(), [integer()]) -> {string(), textToScan()}.
@@ -188,7 +194,7 @@ getIdentifierCharacters(RestContent, CharacterCollect) ->
 -spec getStringContent(textToScan(), lineNumber()) -> {cString(), textToScan(), lineNumber()}.
 getStringContent(Content, CurrentLine) ->
     {String, RestContent, NewLineNumber} = getStringContent(Content, [], CurrentLine),
-    {{string, CurrentLine, String}, RestContent, NewLineNumber}.
+    {{cString, CurrentLine, String}, RestContent, NewLineNumber}.
 
 -spec getStringContent(textToScan(), [integer()], lineNumber()) -> {binary(), textToScan(), lineNumber()}.
 getStringContent(<<$", Rest/binary>>, CharacterCollect, CurrentLine) ->
@@ -208,12 +214,12 @@ getCharacterContent(<<$\\, Rest/binary>>, CurrentLine) ->
     {Value, RestContent} = getEscapedCharacter(Rest, CurrentLine),
     case RestContent of
         <<$', RealRestContent>> ->
-            {{character, CurrentLine, Value}, RealRestContent};
+            {{cCharacter, CurrentLine, Value}, RealRestContent};
         _ ->
             throw({CurrentLine, "missing \"'\" at the end of character"})
     end;
 getCharacterContent(<<C, $', Rest/binary>>, CurrentLine) ->
-    {{character, CurrentLine, C}, Rest};
+    {{cCharacter, CurrentLine, C}, Rest};
 getCharacterContent(<<C, _/binary>>, CurrentLine) when C =:= $\n; C =:= $\t ->
     throw({CurrentLine, "invalid character literal"});
 getCharacterContent(<<$', _/binary>>, CurrentLine) ->
@@ -273,6 +279,11 @@ multiCharacterOperators() ->
 singleCharacterOperators() ->
     [$\n, $^, $!, $*, $&, ${, $}, $[, $], $(, $), $?, $:, $,, $;, $\\].
 
+%% there are 32 keywords in C language
+cKeywords() ->
+    ['if', else, switch, 'case', default, for, while, do, break, continue, return, goto, struct, enum, union, sizeof, typedef,
+     const, static, extern, volatile, auto, register, signed, unsigned, char, short, long, int, double, float, void].
+
 -spec tokenize(textToScan()) -> {ok, [token()]} | {error, lineNumber(), string()}.
 tokenize(BinaryString) ->
     try
@@ -289,15 +300,15 @@ operator_test() ->
                  tokenize(<<"*+++\n\n>>">>)).
 
 integer_test() ->
-    ?assertEqual({ok, [{integer, 1, 16}, {integer, 1, 8}, {integer, 1, 10}]},
+    ?assertEqual({ok, [{cInteger, 1, 16}, {cInteger, 1, 8}, {cInteger, 1, 10}]},
                  tokenize(<<"0x10 010 10">>)).
 
 float_test() ->
-    ?assertEqual({ok, [{float, 1, 3.14}, {float, 1, 200.0}]},
+    ?assertEqual({ok, [{cFloat, 1, 3.14}, {cFloat, 1, 200.0}]},
                  tokenize(<<"3.14 2.0e2">>)).
 
 string_test() ->
-    ?assertEqual({ok, [{string, 1, <<"helloworld">>}]},
+    ?assertEqual({ok, [{cString, 1, <<"helloworld">>}]},
                  tokenize(<<"\"hello\\\n\x77orld\"">>)).
 
 string_error_test() ->
@@ -305,13 +316,13 @@ string_error_test() ->
                  tokenize(<<"\"hello\n\x77orld\"">>)).
 
 character_test() ->
-    ?assertEqual({ok, [{character, 1, 97}]},
+    ?assertEqual({ok, [{cCharacter, 1, 97}]},
                  tokenize(<<"'a'">>)),
     ?assertEqual({error, 1, "character is not found between quotation marks"},
                  tokenize(<<"''">>)).
 
 identifier_test() ->
-    ?assertEqual({ok, [{identifier, 1, hello}, {'=', 1}]},
+    ?assertEqual({ok, [{cIdentifier, 1, hello}, {'=', 1}]},
                  tokenize(<<"hello =">>)).
 
 preprocessor_test() ->
@@ -325,16 +336,16 @@ lineContinue_test() ->
                  tokenize(<<";\\ \n;">>)).
 
 lineComment_test() ->
-    ?assertEqual({ok, [{lineComment, 1, <<"hello">>}, {newline, 1}]},
+    ?assertEqual({ok, [{cLineComment, 1, <<"hello">>}, {newline, 1}]},
                  tokenize(<<"//hello\n">>)).
 
 blockComment_test() ->
-    ?assertEqual({ok, [{blockComment, 1, <<"hello\nworld\n">>}, {newline, 3}]},
+    ?assertEqual({ok, [{cBlockComment, 1, <<"hello\nworld\n">>}, {newline, 3}]},
                  tokenize(<<"/*hello\nworld\n*/\n">>)).
 
 %% nested block comment is not supported by Standard C, but supported by this compiler.
 blockComment_nested_test() ->
-    ?assertEqual({ok, [{blockComment, 1, <<"/*hello*/">>}, {newline, 1}]},
+    ?assertEqual({ok, [{cBlockComment, 1, <<"/*hello*/">>}, {newline, 1}]},
         tokenize(<<"/*/*hello*/*/\n">>)).
 
 -endif.
@@ -344,15 +355,15 @@ tokensToBinaryString(Tokens) ->
     list_to_binary(lists:join(" ", lists:map(fun tokenToString/1, Tokens))).
 
 -spec tokenToString(token()) -> string().
-tokenToString({integer, _, Number}) ->
+tokenToString({cInteger, _, Number}) ->
     integer_to_list(Number);
-tokenToString({float, _, Number}) ->
+tokenToString({cFloat, _, Number}) ->
     float_to_list(Number);
-tokenToString({character, _, Number}) ->
+tokenToString({cCharacter, _, Number}) ->
     [$', Number, $'];
-tokenToString({string, _, String}) ->
+tokenToString({cString, _, String}) ->
     String;
-tokenToString({identifier, _, Name}) ->
+tokenToString({cIdentifier, _, Name}) ->
     atom_to_list(Name);
 tokenToString({newline, _}) ->
     $\n;

@@ -13,7 +13,7 @@
 -type handleReturn() :: {MacroMap :: macroMap(), TokensToReturn :: [token()], RestTokens :: [token()]}.
 
 -spec handleSpecial([token()], preprocessContext()) -> handleReturn().
-handleSpecial([{identifier, _, define}, {identifier, LineNumber, Name} | Rest], {MacroMap, TokensToReturn, EndTag}) ->
+handleSpecial([{cIdentifier, _, define}, {cIdentifier, LineNumber, Name} | Rest], {MacroMap, TokensToReturn, EndTag}) ->
     case MacroMap of
         #{Name := _} ->
             throw({LineNumber, cToolUtil:flatFmt("macro name conflict: \"~s\"", [Name])});
@@ -21,9 +21,9 @@ handleSpecial([{identifier, _, define}, {identifier, LineNumber, Name} | Rest], 
             {Tokens, RestTokens} = getExpressionTillEOL(Rest),
             handleNormal(RestTokens, {MacroMap#{Name => Tokens}, TokensToReturn, EndTag})
     end;
-handleSpecial([{identifier, _, undef}, {identifier, _, Name} | Rest], {MacroMap, TokensToReturn, EndTag}) ->
+handleSpecial([{cIdentifier, _, undef}, {cIdentifier, _, Name} | Rest], {MacroMap, TokensToReturn, EndTag}) ->
     handleNormal(Rest, {maps:remove(Name, MacroMap), TokensToReturn, EndTag});
-handleSpecial([{identifier, _, ifdef}, {identifier, _, Name} | Rest], {MacroMap, _, EndTag} = Context) ->
+handleSpecial([{cIdentifier, _, ifdef}, {cIdentifier, _, Name} | Rest], {MacroMap, _, EndTag} = Context) ->
     {MacroMapNew, CollectedTokens, RestTokensNew} = case MacroMap of
                                                         #{Name := _} ->
                                                             collectToElseAndIgnoreToEndif(Rest, Context);
@@ -31,9 +31,9 @@ handleSpecial([{identifier, _, ifdef}, {identifier, _, Name} | Rest], {MacroMap,
                                                             ignoreToElseAndCollectToEndif(Rest, Context)
                                                     end,
     handleNormal(RestTokensNew, {MacroMapNew, CollectedTokens, EndTag});
-handleSpecial([{identifier, LineNumber, ifdef} | _], _) ->
+handleSpecial([{cIdentifier, LineNumber, ifdef} | _], _) ->
     throw({LineNumber, "invalid #ifdef command"});
-handleSpecial([{identifier, _, ifndef}, {identifier, _, Name} | Rest], {MacroMap, _, EndTag} = Context) ->
+handleSpecial([{cIdentifier, _, ifndef}, {cIdentifier, _, Name} | Rest], {MacroMap, _, EndTag} = Context) ->
     {MacroMapNew, CollectedTokens, RestTokensNew} = case MacroMap of
                                                         #{Name := _} ->
                                                             ignoreToElseAndCollectToEndif(Rest, Context);
@@ -41,9 +41,9 @@ handleSpecial([{identifier, _, ifndef}, {identifier, _, Name} | Rest], {MacroMap
                                                             collectToElseAndIgnoreToEndif(Rest, Context)
                                                     end,
     handleNormal(RestTokensNew, {MacroMapNew, CollectedTokens, EndTag});
-handleSpecial([{identifier, LineNumber, ifndef} | _], _) ->
+handleSpecial([{cIdentifier, LineNumber, ifndef} | _], _) ->
     throw({LineNumber, "invalid #ifndef command"});
-handleSpecial([{identifier, _, 'if'} | Rest], {MacroMap, _, EndTag} = Context) ->
+handleSpecial([{'if', _} | Rest], {MacroMap, _, EndTag} = Context) ->
     {Tokens, RestTokens} = getExpressionTillEOL(Rest),
     {MacroMapNew, CollectedTokens, RestTokensNew} = case evaluateTokenExpressions(Tokens, MacroMap) of
                                                         true ->
@@ -52,24 +52,24 @@ handleSpecial([{identifier, _, 'if'} | Rest], {MacroMap, _, EndTag} = Context) -
                                                             ignoreToElseAndCollectToEndif(RestTokens, Context)
                                                     end,
     handleNormal(RestTokensNew, {MacroMapNew, CollectedTokens, EndTag});
-handleSpecial([{identifier, _, else} | RestContent], {MacroMap, TokensToReturn, else}) ->
+handleSpecial([{else, _} | RestContent], {MacroMap, TokensToReturn, else}) ->
     {MacroMap, TokensToReturn, RestContent};
-handleSpecial([{identifier, LineNumber, else} | _], {_, _, normal}) ->
+handleSpecial([{cIdentifier, LineNumber, else} | _], {_, _, normal}) ->
     throw({LineNumber, "\"#else\" is not expected here"});
-handleSpecial([{identifier, _, endif} | RestContent], {MacroMap, TokensToReturn, endif}) ->
+handleSpecial([{cIdentifier, _, endif} | RestContent], {MacroMap, TokensToReturn, endif}) ->
     {MacroMap, TokensToReturn, RestContent};
 %% when the "#else" part is missing ("#if" following "#endif"), pretend that the "#else\n" exists and has been swallowed,
 %% and put the "#endif" back to unhandled tokens.
-handleSpecial([{identifier, LineNumber, endif} | _] = Content, {MacroMap, TokensToReturn, else}) ->
+handleSpecial([{cIdentifier, LineNumber, endif} | _] = Content, {MacroMap, TokensToReturn, else}) ->
     {MacroMap, TokensToReturn, [{'#', LineNumber} | Content]};
-handleSpecial([{identifier, LineNumber, error} | _], _) ->
+handleSpecial([{cIdentifier, LineNumber, error} | _], _) ->
     throw({LineNumber, "compile error... (todo)"});
-handleSpecial([{identifier, LineNumber, warning} | _], _) ->
+handleSpecial([{cIdentifier, LineNumber, warning} | _], _) ->
     throw({LineNumber, "compile warning... (todo)"});
-handleSpecial([{identifier, _, include} | Rest], Context) ->
+handleSpecial([{cIdentifier, _, include} | Rest], Context) ->
     {_, RestTokens} = getExpressionTillEOL(Rest),
     handleNormal(RestTokens, Context);
-handleSpecial([{identifier, LineNumber, Name} | _], _) ->
+handleSpecial([{cIdentifier, LineNumber, Name} | _], _) ->
     throw({LineNumber, cToolUtil:flatFmt("unexpected operator \"~s\" here", [Name])});
 handleSpecial([], {MacroMap, TokensToReturn, normal}) ->
     {MacroMap, TokensToReturn, []};
@@ -123,68 +123,68 @@ getExpressionTillEOL([Token | Rest], CollectedTokens) ->
     getExpressionTillEOL(Rest, [Token | CollectedTokens]).
 
 %% tokens should be parsed to ast before evaluating them, this function will be updated when the parser is finished
-evaluateTokenExpressions([{integer, _, 0}], _MacroMap) ->
+evaluateTokenExpressions([{cInteger, _, 0}], _MacroMap) ->
     false;
-evaluateTokenExpressions([{integer, _, 1}], _MacroMap) ->
+evaluateTokenExpressions([{cInteger, _, 1}], _MacroMap) ->
     true.
 
 -ifdef(EUNIT).
 
 process_noOperator_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"int a = 1;">>),
-    ?assertEqual([{identifier, 1, int}, {identifier, 1, a}, {'=', 1}, {integer, 1, 1}, {';', 1}], process(Tokens)).
+    ?assertEqual([{int, 1}, {cIdentifier, 1, a}, {'=', 1}, {cInteger, 1, 1}, {';', 1}], process(Tokens)).
 
 process_if_true_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 1\n a\n #else\n b\n #endif">>),
-    ?assertEqual([{identifier, 2, a}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 2, a}], process(Tokens)).
 
 process_if_false_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 0\n a\n #else\n b\n #endif">>),
-    ?assertEqual([{identifier, 4, b}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 4, b}], process(Tokens)).
 
 process_ifdef_false_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#ifdef BLAH\n a\n #else\n b\n #endif">>),
-    ?assertEqual([{identifier, 4, b}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 4, b}], process(Tokens)).
 
 process_ifdef_true_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#define BLAH\n #ifdef BLAH\n a\n #else\n b\n #endif">>),
-    ?assertEqual([{identifier, 3, a}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 3, a}], process(Tokens)).
 
 process_ifndef_false_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#ifndef BLAH\n a\n #else\n b\n #endif">>),
-    ?assertEqual([{identifier, 2, a}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 2, a}], process(Tokens)).
 
 process_ifndef_true_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#define BLAH\n #ifndef BLAH\n a\n #else\n b\n #endif">>),
-    ?assertEqual([{identifier, 5, b}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 5, b}], process(Tokens)).
 
 process_recursive_1_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 1\n #if 1\n a\n #else\n b\n #endif\n #else\n c\n #endif">>),
-    ?assertEqual([{identifier, 3, a}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 3, a}], process(Tokens)).
 
 process_recursive_2_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 1\n #if 0\n a\n #else\n b\n #endif\n #else\n c\n #endif">>),
-    ?assertEqual([{identifier, 5, b}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 5, b}], process(Tokens)).
 
 process_recursive_3_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 0\n #if 1\n a\n #else\n b\n #endif\n #else\n c\n #endif">>),
-    ?assertEqual([{identifier, 8, c}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 8, c}], process(Tokens)).
 
 process_elif_1_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 1\n a\n #elif 1\n b\n #endif">>),
-    ?assertEqual([{identifier, 2, a}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 2, a}], process(Tokens)).
 
 process_elif_2_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 0\n a\n #elif 0\n b\n #elif 0\n c\n #else\n d\n #endif">>),
-    ?assertEqual([{identifier, 8, d}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 8, d}], process(Tokens)).
 
 process_elif_3_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 0\n a\n #elif 0\n b\n #elif 1\n c\n #else\n d\n #endif">>),
-    ?assertEqual([{identifier, 6, c}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 6, c}], process(Tokens)).
 
 process_elif_4_test() ->
     {ok, Tokens} = cScanner:tokenize(<<"#if 0\n a\n #elif 1\n b\n #elif 1\n c\n #else\n d\n #endif">>),
-    ?assertEqual([{identifier, 4, b}], process(Tokens)).
+    ?assertEqual([{cIdentifier, 4, b}], process(Tokens)).
 
 -endif.
 
@@ -193,11 +193,11 @@ convertElifToElseAndIf(Tokens) ->
     lists:reverse(lists:flatten(convertElifToElseAndIf(Tokens, [], 0))).
 
 -spec convertElifToElseAndIf([token()], TokenTree, integer()) -> TokenTree when TokenTree :: [token() | TokenTree].
-convertElifToElseAndIf([{'#', _} = PreTag, {identifier, _, 'if'} = Token | Rest], CollectedTokens, _) ->
+convertElifToElseAndIf([{'#', _} = PreTag, {'if', _} = Token | Rest], CollectedTokens, _) ->
     [convertElifToElseAndIf(Rest, [], 0), Token, PreTag, CollectedTokens];
-convertElifToElseAndIf([{'#', _}, {identifier, LineNumber, elif} | Rest], CollectedTokens, ElifDepth) ->
+convertElifToElseAndIf([{'#', _}, {cIdentifier, LineNumber, elif} | Rest], CollectedTokens, ElifDepth) ->
     convertElifToElseAndIf(Rest, [makeElifReplacement(LineNumber) | CollectedTokens], ElifDepth + 1);
-convertElifToElseAndIf([{'#', _} = PreTag, {identifier, _, endif} = Token | Rest], CollectedTokens, ElifDepth) ->
+convertElifToElseAndIf([{'#', _} = PreTag, {cIdentifier, _, endif} = Token | Rest], CollectedTokens, ElifDepth) ->
     convertElifToElseAndIf(Rest, [lists:duplicate(ElifDepth + 1, [Token, PreTag]) | CollectedTokens], 0);
 convertElifToElseAndIf([Token | Rest], CollectedTokens, ElifDepth) ->
     convertElifToElseAndIf(Rest, [Token | CollectedTokens], ElifDepth);
@@ -208,7 +208,7 @@ convertElifToElseAndIf([], CollectedTokens, 0) ->
 
 -spec makeElifReplacement(integer()) -> [token()].
 makeElifReplacement(LineNumber) ->
-    lists:reverse([{'#', LineNumber}, {identifier, LineNumber, else}, {'#', LineNumber}, {identifier, LineNumber, 'if'}]).
+    lists:reverse([{'#', LineNumber}, {else, LineNumber}, {'#', LineNumber}, {'if', LineNumber}]).
 
 -ifdef(EUNIT).
 

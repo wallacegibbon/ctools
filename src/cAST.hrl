@@ -1,22 +1,93 @@
--type commonExpression2Type() :: 'a+b' | 'a-b' | 'a*b' | 'a/b' | 'a%b' | 'a&b' | 'a|b' | 'a^b' | 'a&&b' | 'a||b' |
-                                 'a==b' | 'a!=b' | 'a=b' | 'a->b' | 'a.b' | 'a[b]' | 'a(b)'.
--type commonExpression1Type() :: '+a' | '-a' | '~a' | '++a' | '--a' | '!a' | '*a' | '&a' | sizeof.
--type lineNumber() :: pos_integer().
+-ifndef(__cAST_hrl__).
+-define(__cAST_hrl__, true).
+
+-include("./cScanner.hrl").
+
+-type commonExpression2Type() :: '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '&&' | '||' | '==' | '!=' | '=' | '->' | '.' | '[]' | '()'.
+-type commonExpression1Type() :: '+' | '-' | '~' | '++' | '--' | '!' | '*' | '&' | sizeof.
 
 -record(commonExpression2,
-        {operator = 'a+b' :: commonExpression2Type(),
+        {operator = '+' :: commonExpression2Type(),
          operand1 = [] :: cAST(),
          operand2 = [] :: cAST(),
          line = 0:: lineNumber()}).
 
 -record(commonExpression1,
-        {operator = '+a' :: commonExpression1Type(),
+        {operator = '+' :: commonExpression1Type(),
          operand = [] :: cAST(),
          line = 0:: lineNumber()}).
 
--record(functionCall,
-        {functionName = "" :: string(),
+-record(invocationExpression,
+        {function :: cExpression(),
+         arguments = [] :: cAST(), %% todo
+         line = 0 :: lineNumber()}).
+
+-record(variableReference,
+        {name :: atom(),
+         line = 0 :: lineNumber()}).
+
+-record(variableDefinition,
+        {name :: atom(),
+         type :: cType(),
+         initialValue :: cExpression(),
+         line = 0 :: lineNumber()}).
+
+-record(functionDefinitionRaw,
+        {name :: atom(),
+         parameters = [] :: [#variableDefinition{}],
+         returnType :: cType(),
          body = [] :: cAST(),
+         line = 0 :: lineNumber()}).
+
+-record(functionDefinition,
+        {name :: atom(),
+         parameters = [] :: [#variableDefinition{}],
+         returnType :: cType(),
+         body = [] :: cAST(),
+         line = 0 :: lineNumber()}).
+
+-record(structDefinitionRaw,
+        {name = '<anonymous>' :: atom(),
+         fields = [] :: [#variableDefinition{}],
+         line = 0 :: lineNumber()}).
+
+-record(structDefinition,
+        {name :: atom(),
+         size = 0 :: non_neg_integer(),
+         fields = [] :: [#variableDefinition{}],
+         line = 0 :: lineNumber()}).
+
+-record(unionDefinitionRaw,
+        {name = '<anonymous>' :: atom(),
+         fields = [] :: [#variableDefinition{}],
+         line = 0 :: lineNumber()}).
+
+-record(unionDefinition,
+        {name :: atom(),
+         size = 0 :: non_neg_integer(),
+         fields = [] :: [#variableDefinition{}],
+         line = 0 :: lineNumber()}).
+
+-record(enumDefinitionRaw,
+        {name :: atom(),
+         variants = [] :: [atom()],
+         line = 0 :: lineNumber()}).
+
+-record(enumDefinition,
+        {name :: atom(),
+         variants = [] :: [atom()],
+         line = 0 :: lineNumber()}).
+
+-record(basicType,
+        {pointerDepth = 0 :: non_neg_integer(),
+         class = integer :: struct | union | enum | integer | float | void,
+         %% this field can be type tag or struct/union/enum name
+         tag = u8 :: u8 | i8 | u16 | i16 | u32 | i32 | u64 | i64 | f32 | f64 | atom(),
+         line = 0 :: lineNumber()}).
+
+-record(arrayType,
+        {elementType :: cType(),
+         size = 0 :: non_neg_integer(),
          line = 0 :: lineNumber()}).
 
 -record(ifStatement,
@@ -33,23 +104,53 @@
 
 -record(whileStatement,
         {condition = [] :: cExpression(),
+         statements = [] :: cAST(),
          line = 0 :: lineNumber()}).
 
 -record(doWhileStatement,
         {condition = [] :: cExpression(),
+         statements = [] :: cAST(),
          line = 0 :: lineNumber()}).
 
 -record(forStatement,
-        {initialize = [] :: #expressionStatement{},
+        {initialize = [] :: cExpression(), %% todo: variable definition is also allowed here
          condition = [] :: cExpression(),
          tail = [] :: cExpression(),
-         body = [] :: cAST(),
+         statements = [] :: cAST(),
+         line = 0 :: lineNumber()}).
+
+-record(returnStatement,
+        {expression :: cExpression(),
+         line = 0 :: lineNumber()}).
+
+-record(gotoStatement,
+        {expression :: cExpression(),
          line = 0 :: lineNumber()}).
 
 -record(expressionStatement,
         {expression :: cExpression(),
          line = 0 :: lineNumber()}).
 
--type cExpression() :: #commonExpression2{} | #commonExpression1{} | #functionCall{}.
+-record(gotoLabel,
+        {name :: cExpression(),
+         line = 0 :: lineNumber()}).
+
+-record(sizeofExpression,
+        {type :: cType(),
+         line = 0 :: lineNumber()}).
+
+-record(arrayInitializeExpression,
+        {elements = [] :: cExpression(),
+         line = 0 :: lineNumber()}).
+
+-record(structInitializeExpression,
+        {elements = [] :: cExpression(),
+         line = 0 :: lineNumber()}).
+
+-type cExpression() :: #commonExpression2{} | #commonExpression1{} | #invocationExpression{} | #sizeofExpression{} |
+                       #arrayInitializeExpression{} | #structInitializeExpression{}.
 -type cStatement() :: #ifStatement{} | #switchStatement{} | #whileStatement{} | #doWhileStatement{} | #expressionStatement{}.
 -type cAST() :: [cStatement()].
+-type cType() :: #basicType{} | #arrayType{}.
+
+-endif.
