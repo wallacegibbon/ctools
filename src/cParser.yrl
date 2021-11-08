@@ -204,14 +204,20 @@ op25 -> '||' : '$1'.
 %% struct definition
 structDefinition -> struct cIdentifier '{' variableDefinitionList '}' :
     #structDefinitionRaw{name = tokenValue('$2'), fields = '$4', line = tokenLine('$1')}.
+structDefinition -> struct '{' variableDefinitionList '}' :
+    #structDefinitionRaw{name = '<anonymous>', fields = '$4', line = tokenLine('$1')}.
 
 %% union definition
 unionDefinition -> union cIdentifier '{' variableDefinitionList '}' :
     #unionDefinitionRaw{name = tokenValue('$2'), fields = '$4', line = tokenLine('$1')}.
+unionDefinition -> union '{' variableDefinitionList '}' :
+    #unionDefinitionRaw{name = '<anonymous>', fields = '$4', line = tokenLine('$1')}.
 
 %% enum definition
 enumDefinition -> enum cIdentifier '{' cIdentifier '}' :
     #enumDefinitionRaw{name = tokenValue('$2'), variants = '$4', line = tokenLine('$1')}.
+enumDefinition -> enum '{' cIdentifier '}' :
+    #enumDefinitionRaw{name = '<anonymous>', variants = '$4', line = tokenLine('$1')}.
 
 functionDefinition -> cInteger : '$1'.
 
@@ -253,7 +259,7 @@ commonCType -> basicCType : '$1'.
 commonCType -> basicCType cIdentifier :
     case '$1' of
         {ok, undefined, Flags} ->
-            #basicCType{class = '<unknown>', tag = tokenValue('$2'), flags = Flags, line = tokenLine('$2')};
+            #basicType{class = '<unknown>', tag = tokenValue('$2'), flags = Flags, line = tokenLine('$2')};
         {ok, _, _} ->
             return_error({tokenLine('$2'), "invalid type annotation"});
         {error, LineNumber, ErrorString} ->
@@ -291,6 +297,10 @@ basicCTypePiece -> double float : {float, {f64, tokenLine('$1')}}.
 basicCTypePiece -> double : {float, {f64, tokenLine('$1')}}.
 basicCTypePiece -> float : {float, {f32, tokenLine('$1')}}.
 basicCTypePiece -> void : {void, '$1'}.
+%basicCTypePiece -> structDefinition : {struct, '$1'}.
+%basicCTypePiece -> unionDefinition : {union, '$1'}.
+%basicCTypePiece -> enumDefinition : {enum, '$1'}.
+%basicCTypePiece -> cIdentifier : {customType, '$1'}.
 
 Erlang code.
 
