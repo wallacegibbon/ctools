@@ -29,7 +29,7 @@
 -record(variableDefinition,
         {name :: atom(),
          type :: cType(),
-         initialValue :: cExpression(),
+         initialValue :: cExpression() | undefined,
          line = 0 :: lineNumber()}).
 
 -record(functionDefinitionRaw,
@@ -78,11 +78,14 @@
          variants = [] :: [atom()],
          line = 0 :: lineNumber()}).
 
+-type typeFlag() :: const | static | extern | volatile | auto | register.
+
 -record(basicType,
         {pointerDepth = 0 :: non_neg_integer(),
-         class = integer :: struct | union | enum | integer | float | void,
+         class = integer :: struct | union | enum | integer | float | void | '<unknown>',
          %% this field can be type tag or struct/union/enum name
-         tag = u8 :: u8 | i8 | u16 | i16 | u32 | i32 | u64 | i64 | f32 | f64 | atom(),
+         tag = u8 :: u8 | i8 | u16 | i16 | u32 | i32 | u64 | i64 | f32 | f64 | void | atom(),
+         flags = [] :: [typeFlag()],
          line = 0 :: lineNumber()}).
 
 -record(arrayType,

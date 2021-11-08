@@ -251,6 +251,8 @@ getEscapedCharacter(<<$f, Rest/binary>>, _) ->
     {$\f, Rest};
 getEscapedCharacter(<<$b, Rest/binary>>, _) ->
     {$\b, Rest};
+getEscapedCharacter(<<$a, Rest/binary>>, _) ->
+    {7, Rest};
 getEscapedCharacter(<<C, _/binary>>, CurrentLine) ->
     throw({CurrentLine, {"invalid escaped character", C}}).
 
@@ -282,7 +284,7 @@ singleCharacterOperators() ->
 %% there are 32 keywords in C language
 cKeywords() ->
     ['if', else, switch, 'case', default, for, while, do, break, continue, return, goto, struct, enum, union, sizeof, typedef,
-     const, static, extern, volatile, auto, register, signed, unsigned, char, short, long, int, double, float, void].
+     const, static, extern, volatile, auto, register, signed, unsigned, char, short, int, long, double, float, void].
 
 -spec tokenize(textToScan()) -> {ok, [token()]} | {error, lineNumber(), string()}.
 tokenize(BinaryString) ->

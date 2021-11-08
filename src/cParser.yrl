@@ -3,19 +3,20 @@ Nonterminals
 rootLevelStatementList functionLevelStatementList rootLevelStatement functionLevelStatement statementInCommon statementOnlyInFunction statementOnlyOutsideFunction
 structDefinition unionDefinition enumDefinition variableDefinitionList variableDefinition functionDefinition
 parameters expressionsSeparatedByComma expression invocationExpression preMinusPlusExpression
-ifStatement switchStatement whileStatement doWhileStatement forStatement expressionStatement blockStatement
-returnStatement sizeofExpression assignExpression gotoLabel gotoStatement op19 op30 op29 op28 op27 op26 op25 op2WithAssignment
-typeAnnotationList typeAnnotation
+sizeofExpression assignExpression op19 op30 op29 op28 op27 op26 op25 op2WithAssignment
+gotoLabel gotoStatement ifStatement switchStatement whileStatement doWhileStatement forStatement expressionStatement blockStatement returnStatement
 pointerDepth atomicLiteralValue
 arrayInitExpression structInitExpression
+commonCType basicCType basicCTypePieceList basicCTypePiece
 
 .
+
 
 Terminals
 
 %% the 32 keywords in C language
 'if' else switch 'case' default for while do break continue return goto struct enum union sizeof typedef
-const static extern volatile auto register signed unsigned char short long int double float void
+const static extern volatile auto register signed unsigned char short int long double float void
 
 %% operators
 '{' '}' '(' ')' '[' ']' ';' ',' '?' ':' '=' '+' '-' '*' '/' '%' '.' '->'
@@ -25,6 +26,7 @@ const static extern volatile auto register signed unsigned char short long int d
 cIdentifier cInteger cFloat cCharacter cString
 
 .
+
 
 Rootsymbol rootLevelStatementList.
 
@@ -62,7 +64,7 @@ statementOnlyInFunction -> blockStatement : '$1'.
 statementInCommon -> structDefinition : '$1'.
 statementInCommon -> enumDefinition : '$1'.
 statementInCommon -> unionDefinition : '$1'.
-statementInCommon -> variableDefinition ';' : '$1'.
+statementInCommon -> variableDefinition : '$1'.
 
 expressionStatement -> expression ';' : '$1'.
 
@@ -89,12 +91,7 @@ returnStatement -> return expression :
 gotoStatement -> goto expression :
     #gotoStatement{expression = '$2', line = tokenLine('$1')}.
 
-sizeofExpression -> sizeof '(' typeAnnotation ')' :
-    #sizeofExpression{type = '$3', line = tokenLine('$1')}.
-sizeofExpression -> sizeof typeAnnotation :
-    #sizeofExpression{type = '$2', line = tokenLine('$1')}.
-sizeofExpression -> sizeof expression :
-    #sizeofExpression{type = '$2', line = tokenLine('$1')}.
+sizeofExpression -> sizeof : '$1'.
 
 %% function invocation
 invocationExpression -> expression '(' expressionsSeparatedByComma ')' :
@@ -105,7 +102,7 @@ invocationExpression -> expression '(' ')' :
 expressionsSeparatedByComma -> expression ',' expressionsSeparatedByComma :
     ['$1' | '$3'].
 expressionsSeparatedByComma -> expression :
-    [$1].
+    ['$1'].
 
 expression -> expression op30 expression :
     #commonExpression2{operator = tokenSymbol('$2'), operand1 = '$1', operand2 = '$3', line=tokenLine('$2')}.
@@ -163,8 +160,8 @@ op2WithAssignment -> op28 '=' : '$1'.
 op2WithAssignment -> op27 '=' : '$1'.
 
 Unary 900 op19.
-op19 -> '*' : '$1'.
-op19 -> '&' : '$1'.
+%op19 -> '*' : '$1'.
+%op19 -> '&' : '$1'.
 op19 -> '!' : '$1'.
 op19 -> '~' : '$1'.
 
@@ -203,6 +200,7 @@ op25 -> '||' : '$1'.
 %%-------------------------------------------------------------------------------------------------
 %% function, struct, union, enum definitions
 %%-------------------------------------------------------------------------------------------------
+
 %% struct definition
 structDefinition -> struct cIdentifier '{' variableDefinitionList '}' :
     #structDefinitionRaw{name = tokenValue('$2'), fields = '$4', line = tokenLine('$1')}.
@@ -212,24 +210,29 @@ unionDefinition -> union cIdentifier '{' variableDefinitionList '}' :
     #unionDefinitionRaw{name = tokenValue('$2'), fields = '$4', line = tokenLine('$1')}.
 
 %% enum definition
-enumDefinition -> enum cIdentifier '{' variableDefinitionList '}' :
+enumDefinition -> enum cIdentifier '{' cIdentifier '}' :
     #enumDefinitionRaw{name = tokenValue('$2'), variants = '$4', line = tokenLine('$1')}.
 
-functionDefinition -> cIdentifier : '$1'.
+functionDefinition -> cInteger : '$1'.
 
 %%-------------------------------------------------------------------------------------------------
 %% variable definitions
 %%-------------------------------------------------------------------------------------------------
+
 variableDefinitionList -> variableDefinition ',' variableDefinitionList :
     ['$1' | '$3'].
 variableDefinitionList -> variableDefinition :
     ['$1'].
 
-variableDefinition -> cIdentifier : '$1'.
+variableDefinition -> commonCType cIdentifier '=' expression ';' :
+    #variableDefinition{name = tokenValue('$2'), type = '$1', initialValue = '$4', line = tokenLine('$2')}.
+variableDefinition -> commonCType cIdentifier ';' :
+    #variableDefinition{name = tokenValue('$2'), type = '$1', line = tokenLine('$2')}.
 
 %%-------------------------------------------------------------------------------------------------
 %% initialize expressions for array, struct
 %%-------------------------------------------------------------------------------------------------
+
 %% arrayInitExpression and structInitExpression contains similar pattern '{' '}'.
 %% make the precedence of arrayInitExpression higher than structInitExpression
 Unary 2100 arrayInitExpression.
@@ -242,10 +245,113 @@ Unary 2000 structInitExpression.
 structInitExpression -> cIdentifier '{' expressionsSeparatedByComma '}' :
     #structInitializeExpression{name = tokenValue('$1'), fields = '$3', line = tokenLine('$1')}.
 
+%%-------------------------------------------------------------------------------------------------
+%% type related
+%%-------------------------------------------------------------------------------------------------
+
+commonCType -> basicCType : '$1'.
+commonCType -> basicCType cIdentifier :
+    case '$1' of
+        {ok, undefined, Flags} ->
+            #basicCType{class = '<unknown>', tag = tokenValue('$2'), flags = Flags, line = tokenLine('$2')};
+        {ok, _, _} ->
+            return_error({tokenLine('$2'), "invalid type annotation"});
+        {error, LineNumber, ErrorString} ->
+            return_error({LineNumber, ErrorString})
+    end.
+
+basicCType -> basicCTypePieceList :
+    case mergeBasicTypePieces('$1') of
+        {ok, {Class, {TagName, LineNumber}}, Flags} ->
+            #basicType{class = Class, tag = TagName, flags = Flags, line = LineNumber};
+        {error, LineNumber, ErrorString} ->
+            return_error({LineNumber, ErrorString})
+    end.
+
+basicCTypePieceList -> basicCTypePiece basicCTypePieceList : ['$1' | '$2'].
+basicCTypePieceList -> basicCTypePiece : ['$1'].
+
+basicCTypePiece -> const : {flag, '$1'}.
+basicCTypePiece -> static : {flag, '$1'}.
+basicCTypePiece -> extern : {flag, '$1'}.
+basicCTypePiece -> volatile : {flag, '$1'}.
+basicCTypePiece -> auto : {flag, '$1'}.
+basicCTypePiece -> register : {flag, '$1'}.
+basicCTypePiece -> signed : {sign, '$1'}.
+basicCTypePiece -> unsigned : {sign, '$1'}.
+basicCTypePiece -> long long int : {integer, {i64, tokenLine('$1')}}.
+basicCTypePiece -> long long : {integer, {i64, tokenLine('$1')}}.
+basicCTypePiece -> long int : {integer, {i32, tokenLine('$1')}}.
+basicCTypePiece -> long : {integer, {i32, tokenLine('$1')}}.
+basicCTypePiece -> int : {integer, {i32, tokenLine('$1')}}.
+basicCTypePiece -> short int : {integer, {i16, tokenLine('$1')}}.
+basicCTypePiece -> short : {integer, {i16, tokenLine('$1')}}.
+basicCTypePiece -> char : {integer, {i8, tokenLine('$1')}}.
+basicCTypePiece -> double float : {float, {f64, tokenLine('$1')}}.
+basicCTypePiece -> double : {float, {f64, tokenLine('$1')}}.
+basicCTypePiece -> float : {float, {f32, tokenLine('$1')}}.
+basicCTypePiece -> void : {void, '$1'}.
+
 Erlang code.
 
 -include("./cScanner.hrl").
 -include("./cAST.hrl").
+
+-type typePiece() :: {integer, {i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64, lineNumber()}} |
+                     {float, {f32 | f64, lineNumber()}} |
+                     {sign, {unsigned | lineNumber()}} |
+                     {sign, {signed | lineNumber()}} |
+                     {void, {void, lineNumber()}} |
+                     {userDefinedType, {atom(), lineNumber()}} |
+                     undefined.
+
+-type typeFlagToken() :: {typeFlag(), lineNumber()}.
+
+-spec mergeBasicTypePieces([typePiece()]) -> {ok, typePiece(), [typeFlagToken()]} | {error, lineNumber(), string()}.
+mergeBasicTypePieces(TypePieceList) ->
+    mergeBasicTypePieces(TypePieceList, undefined, [], undefined).
+
+-spec mergeBasicTypePieces([typePiece()], typePiece(), [typeFlagToken()], signed | unsigned | undefined) ->
+        {ok, typePiece(), [typeFlagToken()]} | {error, lineNumber(), string()}.
+%% unsigned + i8/i16/i32/i64 should be converted to u8/u16/u32/u64
+mergeBasicTypePieces([{integer, {i8, LineNumber}} | Rest], undefined, Flags, unsigned = Sign) ->
+    mergeBasicTypePieces(Rest, {integer, {u8, LineNumber}}, Flags, Sign);
+mergeBasicTypePieces([{integer, {i16, LineNumber}} | Rest], undefined, Flags, unsigned = Sign) ->
+    mergeBasicTypePieces(Rest, {integer, {u16, LineNumber}}, Flags, Sign);
+mergeBasicTypePieces([{integer, {i32, LineNumber}} | Rest], undefined, Flags, unsigned = Sign) ->
+    mergeBasicTypePieces(Rest, {integer, {u32, LineNumber}}, Flags, Sign);
+mergeBasicTypePieces([{integer, {i64, LineNumber}} | Rest], undefined, Flags, unsigned = Sign) ->
+    mergeBasicTypePieces(Rest, {integer, {u64, LineNumber}}, Flags, Sign);
+%% no change for other integer
+%% but the typePiece in result should be "undefined" in this case. e.g. "long short int a;" is invalid
+mergeBasicTypePieces([{integer, _} = TypePiece | Rest], undefined, Flags, Sign) ->
+    mergeBasicTypePieces(Rest, TypePiece, Flags, Sign);
+mergeBasicTypePieces([{integer, {_, LineNumber}} | _], _, _, _) ->
+    {error, LineNumber, "syntax error near integer type declaration"};
+%% sign/unsigned is only for integer type
+mergeBasicTypePieces([{float, {_, LineNumber}} | _], _, _, Sign) when Sign =/= undefined ->
+    {error, LineNumber, "signed/unsigned can not be used with float type"};
+mergeBasicTypePieces([{void, {_, LineNumber}} | _], _, _, Sign) when Sign =/= undefined ->
+    {error, LineNumber, "signed/unsigned can not be used with void type"};
+%% signed/unsigned flag should appear before char/short/int/long
+mergeBasicTypePieces([{sign, {_, LineNumber}} | _], TypePiece, _, _) when TypePiece =/= undefined ->
+    {error, LineNumber, "syntax error near signed/unsigned"};
+mergeBasicTypePieces([{sign, {Sign, _}} | Rest], undefined, Flags, undefined) ->
+    mergeBasicTypePieces(Rest, undefined, Flags, Sign);
+mergeBasicTypePieces([{sign, {_, LineNumber}} | _], _, _, undefined) ->
+    {error, LineNumber, "syntax error near signed/unsigned"};
+%% duplicated flags will be detected
+mergeBasicTypePieces([{flag, {FlagName, LineNumber} = FlagTag} | Rest], TypePiece, Flags, Sign) ->
+    case lists:any(fun ({Name, _}) -> FlagName =:= Name end, Flags) of
+        true ->
+            {error, LineNumber, cToolUtil:flatFmt("duplicated flag ~s", [FlagName])};
+        false ->
+            mergeBasicTypePieces(Rest, TypePiece, [FlagTag | Flags], Sign)
+    end;
+mergeBasicTypePieces([{userDefinedType, {TagName, LineNumber}} | _], _, _, _) ->
+    {error, LineNumber, cToolUtil:flatFmt("syntax error near ~s", [TagName])};
+mergeBasicTypePieces([], TypePiece, TypeFlags, _) ->
+    {ok, TypePiece, TypeFlags}.
 
 -spec stringToIntegerTokens(cString()) -> [cInteger()].
 stringToIntegerTokens({string, LineNumber, BinaryString}) ->
@@ -254,8 +360,8 @@ stringToIntegerTokens({string, LineNumber, BinaryString}) ->
 tokenValue({_, _, Value}) ->
     Value.
 
-tokenSymbol({Symbol, _}) ->
-    Symbol.
+tokenSymbol(Token) ->
+    element(1, Token).
 
-tokenLine(T) ->
-    element(2, T).
+tokenLine(Token) ->
+    element(2, Token).
